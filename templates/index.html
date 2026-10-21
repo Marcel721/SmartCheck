@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HDD Triage Station</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1>HDD Triage Station</h1>
+        <div class="scanner-status">
+            <input type="text" id="barcode-input" placeholder="Barcode scannen..." autofocus autocomplete="off">
+        </div>
+    </header>
+
+    <main class="container">
+        <div id="slots-grid" class="slots-grid">
+            {% for slot_id, slot in slots.items() %}
+            <div id="slot-{{ slot_id }}" class="slot-card {{ slot.status.lower() }}">
+                <div class="slot-header">
+                    <span>Slot {{ slot_id }}</span>
+                    <span class="badge {{ slot.status.lower() }}">{{ slot.status }}</span>
+                </div>
+                <div class="hdd-info">
+                    {% if slot.info %}
+                        <p><strong>SN:</strong> {{ slot.info.serial_number or 'N/A' }} {% if slot.from_db %}<span class="db-tag">📁 Aus Inventar</span>{% endif %}</p>
+                        <p><strong>Modell:</strong> {{ slot.info.model or 'N/A' }}</p>
+                        <p><strong>Pending:</strong> {{ slot.info.pending_sectors or 0 }}</p>
+                        <p><strong>Reallocated:</strong> {{ slot.info.reallocated_sectors or 0 }}</p>
+                        {% if slot.info.tested_at %}
+                            <p class="test-time"><strong>Getestet am:</strong> {{ slot.info.tested_at }}</p>
+                        {% endif %}
+                    {% else %}
+                        <p>Keine Festplatte</p>
+                    {% endif %}
+                </div>
+
+                {% if slot.status == 'TESTING' %}
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" style="width: {{ slot.progress }}%"></div>
+                </div>
+                <p style="font-size:0.8rem; text-align:right; margin-top:4px;">Test: {{ slot.progress }}%</p>
+                {% endif %}
+
+                {% if slot.status == 'EMPTY' %}
+                <div class="btn-group">
+                    <button class="action-btn check-btn" onclick="checkSlot({{ slot_id }})">🔍 Festplatte prüfen</button>
+                </div>
+                {% else %}
+                <div class="btn-group">
+                    <button class="action-btn retest-btn" onclick="retestSlot({{ slot_id }})" {% if slot.status == 'TESTING' %}disabled{% endif %}>🔄 Erneuten Test starten</button>
+                    <button class="action-btn eject-btn" onclick="ejectSlot({{ slot_id }})">⏏ Slot freigeben</button>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+
+    <div id="scan-popup" class="popup hidden"></div>
+
+    <script src="/static/js/main.js?v=5"></script>
+</body>
+</html>

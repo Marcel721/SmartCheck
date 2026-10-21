@@ -1,0 +1,241 @@
+/* --- Global Base Styles --- */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: #0f172a;
+    color: #f8fafc;
+    min-height: 100vh;
+}
+
+/* --- Header & Search / Barcode Input --- */
+.header {
+    background-color: #1e293b;
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #334155;
+}
+
+.header h1 {
+    font-size: 1.5rem;
+    color: #38bdf8;
+}
+
+.scanner-status input {
+    background-color: #0f172a;
+    border: 1px solid #475569;
+    color: #f8fafc;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    width: 250px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.scanner-status input:focus {
+    border-color: #38bdf8;
+}
+
+/* --- Main Layout & Grid --- */
+.container {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.slots-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+/* --- Slot Cards --- */
+.slot-card {
+    background-color: #1e293b;
+    border-radius: 10px;
+    padding: 1.25rem;
+    border: 2px solid #334155;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: transform 0.2s, border-color 0.2s;
+}
+
+.slot-card:hover {
+    transform: translateY(-2px);
+}
+
+/* Status-Farben */
+.slot-card.empty {
+    border-color: #334155;
+}
+
+.slot-card.testing {
+    border-color: #eab308;
+}
+
+.slot-card.passed {
+    border-color: #10b981;
+}
+
+.slot-card.failed {
+    border-color: #ef4444;
+}
+
+/* Slot Header & Badges */
+.slot-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    font-weight: bold;
+    font-size: 1.1rem;
+}
+
+.badge {
+    padding: 0.25rem 0.6rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    font-weight: bold;
+}
+
+.badge.empty {
+    background-color: #334155;
+    color: #94a3b8;
+}
+
+.badge.testing {
+    background-color: #ca8a04;
+    color: #fef08a;
+}
+
+.badge.passed {
+    background-color: #065f46;
+    color: #a7f3d0;
+}
+
+.badge.failed {
+    background-color: #991b1b;
+    color: #fecaca;
+}
+
+/* HDD Info Details */
+.hdd-info {
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: #cbd5e1;
+    margin-bottom: 1rem;
+}
+
+.db-tag {
+    background-color: #3b82f6;
+    color: #ffffff;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 5px;
+    font-weight: bold;
+}
+
+.test-time {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    margin-top: 6px;
+    border-top: 1px dashed #334155;
+    padding-top: 4px;
+}
+
+/* --- Progress Bar --- */
+.progress-bar-bg {
+    background-color: #0f172a;
+    border-radius: 6px;
+    height: 10px;
+    overflow: hidden;
+    margin-top: 0.5rem;
+}
+
+.progress-bar-fill {
+    background-color: #eab308;
+    height: 100%;
+    width: 0%;
+    transition: width 0.4s ease;
+}
+
+/* --- Action Buttons & Button Group --- */
+.btn-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.action-btn {
+    width: 100%;
+    color: #f8fafc;
+    border: 1px solid #475569;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: background-color 0.2s, border-color 0.2s;
+    box-sizing: border-box;
+}
+
+.action-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.retest-btn {
+    background-color: #0284c7;
+    border-color: #0369a1;
+}
+
+.retest-btn:hover {
+    background-color: #0369a1;
+}
+
+.eject-btn {
+    background-color: #334155;
+    border-color: #475569;
+}
+
+.eject-btn:hover {
+    background-color: #475569;
+}
+
+.check-btn {
+    background-color: #16a34a;
+    border-color: #15803d;
+}
+
+.check-btn:hover {
+    background-color: #15803d;
+}
+
+/* --- Barcode Scan Result Popup --- */
+.popup {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    background-color: #1e293b;
+    border: 2px solid #38bdf8;
+    padding: 1rem 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+    z-index: 100;
+    transition: opacity 0.3s ease;
+}
+
+.popup.hidden {
+    display: none;
+}
