@@ -43,6 +43,27 @@ body {
     border-color: #38bdf8;
 }
 
+.scanner-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mode-btn {
+    background: #334155;
+    border: 1px solid #475569;
+    color: #f8fafc;
+    padding: 8px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.mode-btn.active {
+    background: #0284c7;
+    border-color: #38bdf8;
+}
+
 /* --- Main Layout & Grid --- */
 .container {
     padding: 2rem;
@@ -238,4 +259,121 @@ body {
 
 .popup.hidden {
     display: none;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.popup.scan-approved {
+    background-color: #065f46;
+    border-color: #10b981;
+}
+
+.popup.scan-rejected {
+    background-color: #991b1b;
+    border-color: #ef4444;
+}
+
+.popup.scan-ready,
+.popup.scan-result {
+    bottom: 50%;
+    right: 50%;
+    width: min(560px, calc(100vw - 2rem));
+    padding: 2.5rem;
+    text-align: center;
+    transform: translate(50%, 50%);
+}
+
+.popup.scan-ready {
+    background-color: #1e293b;
+    border-color: #38bdf8;
+}
+
+.popup.scan-result {
+    color: #fff;
+}
+
+.scan-popup-icon {
+    font-size: 4rem;
+    line-height: 1;
+    margin-bottom: 1rem;
+}
+
+.scan-ready h2,
+.scan-result h2 {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+}
+
+.popup-close-btn {
+    margin-top: 1.5rem;
+    background: #334155;
+    border: 1px solid #64748b;
+    color: #f8fafc;
+    padding: 10px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.popup-close-btn:hover {
+    background: #475569;
+}
+
+.selection-panel {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.selection-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.selection-help {
+    color: #cbd5e1;
+    margin: 1rem 0;
+}
+
+.inventory-list {
+    display: grid;
+    gap: 8px;
+}
+
+.inventory-row {
+    display: grid;
+    grid-template-columns: 30px 1.2fr 1.5fr 0.8fr repeat(3, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    color: #cbd5e1;
+}
+
+.inventory-status.passed {
+    color: #6ee7b7;
+}
+
+.inventory-status.failed {
+    color: #fca5a5;
+}
+
+@media (max-width: 900px) {
+    .header,
+    .selection-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .scanner-status,
+    .inventory-row {
+        grid-template-columns: 1fr;
+        flex-wrap: wrap;
+    }
 }

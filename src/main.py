@@ -167,17 +167,59 @@ async def handle_disk_added(dev_node: str, preferred_slot_id: int = None):
 
 async def check_disk_for_slot(slot_id: int):
     if slot_id not in slots_state or slots_state[slot_id]["status"] != "EMPTY":
+        await manager.broadcast({
+            "type": "CHECK_RESULT",
+            "slot_id": slot_id,
+            "status": "slot_occupied",
+            "message": f"Slot {slot_id} ist bereits belegt."
+        })
         return
 
     for dev_node in sorted(glob.glob("/dev/sd[a-z]")):
         if get_slot_by_device(dev_node):
             continue
-        info = smart_logic.get_disk_info(dev_node)
-        if info.get("serial_number") != "UNKNOWN":
+        manually_ejected_devices.pop(dev_node, None)
+        info = None
+        for attempt in range(3):
+            if not os.path.exists(dev_node):
+                break
+            info = smart_logic.get_disk_info(dev_node)
+            if info.get("serial_number") != "UNKNOWN":
+                break
+            if attempt < 2:
+                await asyncio.sleep(0.5)
+
+        if info and info.get("serial_number") != "UNKNOWN":
+            serial = info["serial_number"]
+            db_entry = get_hdd_by_serial(serial)
+            if db_entry:
+                message = f"Festplatte {serial} wurde gefunden. Bereits getestet: {db_entry['test_result']}."
+                status = "already_tested"
+            else:
+                message = f"Festplatte {serial} wurde gefunden. Neuer Test wird gestartet."
+                status = "new_test"
+            await manager.broadcast({
+                "type": "CHECK_RESULT",
+                "slot_id": slot_id,
+                "status": status,
+                "message": message
+            })
             await handle_disk_added(dev_node, preferred_slot_id=slot_id)
             return
 
-    print(f"[BACKEND INFO] Keine Festplatte für Slot {slot_id} gefunden.")
+    candidates = sorted(glob.glob("/dev/sd[a-z]"))
+    message = (
+        f"Keine auslesbare Festplatte für Slot {slot_id} gefunden."
+        if candidates
+        else f"Keine Festplatte für Slot {slot_id} gefunden."
+    )
+    print(f"[BACKEND INFO] {message}")
+    await manager.broadcast({
+        "type": "CHECK_RESULT",
+        "slot_id": slot_id,
+        "status": "not_found",
+        "message": message
+    })
 
 async def handle_disk_removed(dev_node: str):
     try:
@@ -351,6 +393,8 @@ async def api_inventory():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    selection_mode_active = False
+    selected_serials: set[str] = set()
     await manager.connect(websocket)
     try:
         await websocket.send_json({"type": "INIT_STATE", "slots": slots_state})
@@ -358,8 +402,35 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_json()
             if data.get("type") == "BARCODE_SCAN":
                 serial = data.get("serial", "").strip()
-                result = get_hdd_by_serial(serial)
-                await websocket.send_json({"type": "SCAN_RESULT", "serial": serial, "data": result})
+                lookup_serial = serial[:-1] if serial.endswith(".") else serial
+                result = get_hdd_by_serial(serial) or get_hdd_by_serial(lookup_serial)
+                matched_serial = result["serial_number"] if result else lookup_serial
+                await websocket.send_json({
+                    "type": "SCAN_RESULT",
+                    "serial": serial,
+                    "matched_serial": matched_serial,
+                    "data": result,
+                    "selection_allowed": (
+                        selection_mode_active
+                        and matched_serial in selected_serials
+                        and result is not None
+                        and result.get("test_result") == "PASSED"
+                    )
+                })
+            elif data.get("type") == "START_SELECTION_SCAN":
+                selected_serials = {
+                    str(serial).strip()
+                    for serial in data.get("serials", [])
+                    if str(serial).strip()
+                }
+                selection_mode_active = True
+                await websocket.send_json({
+                    "type": "SELECTION_SCAN_STARTED",
+                    "count": len(selected_serials)
+                })
+            elif data.get("type") == "STOP_SELECTION_SCAN":
+                selection_mode_active = False
+                selected_serials = set()
             elif data.get("type") == "EJECT_SLOT":
                 slot_id = int(data.get("slot_id"))
                 if slot_id in slots_state:

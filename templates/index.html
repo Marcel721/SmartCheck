@@ -11,6 +11,8 @@
         <h1>HDD Triage Station</h1>
         <div class="scanner-status">
             <input type="text" id="barcode-input" placeholder="Barcode scannen..." autofocus autocomplete="off">
+            <button id="test-mode-btn" class="mode-btn active" type="button">Testen</button>
+            <button id="selection-mode-btn" class="mode-btn" type="button">Platten auswählen</button>
         </div>
     </header>
 
@@ -58,8 +60,17 @@
         </div>
     </main>
 
+    <section id="selection-panel" class="selection-panel hidden">
+        <div class="selection-header">
+            <h2>Getestete Festplatten auswählen</h2>
+            <button id="start-selection-scan-btn" class="action-btn check-btn" type="button">Scanner für Auswahl starten</button>
+        </div>
+        <p class="selection-help">PASSED-Platten sind vorausgewählt. Wähle die Platten aus, die später verwendet werden dürfen.</p>
+        <div id="inventory-list" class="inventory-list"></div>
+    </section>
+
     <div id="scan-popup" class="popup hidden"></div>
 
-    <script src="/static/js/main.js?v=5"></script>
+    <script src="/static/js/main.js?v=9"></script>
 </body>
 </html>
