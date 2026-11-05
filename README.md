@@ -1,6 +1,6 @@
-# HDD Triage Station
+# SmartCheck
 
-HDD Triage Station is a local web application for testing and selecting hard
+SmartCheck is a local web application for testing and selecting hard
 drives. It reads SMART information, runs a short SMART self-test, stores the
 result in a local SQLite inventory, and provides a barcode-based workflow for
 selecting drives that are safe to use.
