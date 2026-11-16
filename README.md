@@ -1,336 +1,311 @@
 # SmartCheck
 
-SmartCheck is a local web application for testing and selecting hard
-drives. It reads SMART information, runs a short SMART self-test, stores the
-result in a local SQLite inventory, and provides a barcode-based workflow for
-selecting drives that are safe to use.
+SmartCheck is a local Linux web application for testing SAS/SATA hard
+drives and selecting drives that are suitable for reuse. It reads the device
+identity, starts a short SMART self-test, tracks its progress, reads the final
+SMART/SAS report, stores the result in SQLite, and supports barcode selection.
 
-The application is designed for a test station with direct internal SATA/SAS
-connections, a USB/SATA dock, or another way of connecting drives to a Linux
-computer. It runs locally and is normally
-opened at <http://127.0.0.1:8000/>.
+The current interface has **8 test slots**. It is designed primarily for
+directly connected SAS drives through a controller that supports SMART/SCSI
+passthrough.
 
-## What it is used for
+## Screenshots
 
-The application supports two workflows:
-
-1. **Testing drives**
-   - Detect a connected disk.
-   - Read its model, serial number, SMART health, and important sector counts.
-   - Run a short SMART self-test.
-   - Classify the drive as `PASSED` or `FAILED` based on variables defined in `src/config.py`.
-   - Store the result in the local inventory.
-
-2. **Selecting tested drives**
-   - Show all drives previously stored in the inventory.
-   - Preselect drives whose test result is `PASSED`.
-   - Manually include or exclude drives with checkboxes.
-   - Scan a barcode and immediately show a large green or red decision:
-     - **PLATTE NEHMEN**: the drive is selected and passed its test.
-     - **PLATTE NICHT NEHMEN**: the drive is not selected, is not in the
-       inventory, or did not pass.
-
-Barcode values with a trailing period are supported. For example,
-`W4Z1EPVJ.` is also checked as `W4Z1EPVJ`.
+<p>
+   <img src="images/Platten%20Testen.png" alt="Test view" width="400">
+   <img src="images/Platten_auswählen.png" alt="Disk selection view" width="400">
+</p>
 
 ## Requirements
 
 - Linux
 - Python 3.10 or newer
-- `smartctl` from the `smartmontools` package
-- Permission to read the connected block devices, such as `/dev/sda`
-- Direct SATA/SAS connections or a USB/SATA dock with SMART passthrough
-- A USB barcode scanner that behaves like a keyboard
+- `smartctl` 7.4 or newer from `smartmontools`
+- `libcap2-bin` for password-free SMART self-test commands
+- Eight or fewer whole-disk devices visible as `/dev/sdX`
+- A barcode scanner that behaves like a keyboard, if barcode selection is used
 
-On Debian or Ubuntu, install the system package with:
+On Debian or Ubuntu:
 
 ```bash
 sudo apt update
-sudo apt install smartmontools libcap2-bin python3 python3-venv
+sudo apt install smartmontools libcap2-bin python3 python3-venv python3-pip
 ```
 
-The Python dependencies are listed in
-[requirements.txt](./requirements.txt) and are installed by `run.sh`.
-
-Before starting the application, confirm that Linux sees the installed drives:
+The application must be able to access the disk devices without running the
+web server as root. The following setup is normally required once per PC:
 
 ```bash
-lsblk -d -o NAME,PATH,TYPE,TRAN,MODEL,SERIAL,SIZE
-sudo smartctl -d scsi -i /dev/sda
+sudo usermod -aG disk "$USER"
+sudo setcap cap_sys_rawio+ep "$(command -v smartctl)"
 ```
 
-Use the whole-disk device names shown by `lsblk`, such as `/dev/sda`; do not
-use partition names such as `/dev/sda1`.
-
-## Starting the application
-
-From the project directory, run:
+Log out and back in after changing the `disk` group. Verify the capability:
 
 ```bash
+id -nG
+getcap "$(command -v smartctl)"
+```
+
+The output of `getcap` should contain:
+
+```text
+cap_sys_rawio+ep
+```
+
+Do not run the web server
+with `sudo` during normal use. Reapply `setcap` after upgrading the
+`smartmontools` package if the capability is removed.
+
+## Install and start
+
+Copy the complete `hdd-triage` directory to the new computer. Do not copy
+`venv/`, `.venv/`, `.git/`, or Python `__pycache__` directories; `run.sh`
+creates the virtual environment automatically.
+
+From the project directory:
+
+```bash
+cd ~/hdd-triage
+chmod +x run.sh
 ./run.sh
 ```
 
-The script:
-
-1. Optionally resets the database when called with `--clear-db`.
-2. Creates or activates the local `venv` virtual environment.
-3. Installs the Python requirements.
-4. Starts Uvicorn on `0.0.0.0:8000`.
-
-Open the application in a browser:
+`run.sh` installs the Python dependencies into the local `venv/` directory and
+starts Uvicorn at:
 
 ```text
 http://127.0.0.1:8000/
 ```
 
-If `smartctl` reports `Permission denied` for a device, grant the application
-user access to raw disk devices:
-
-```bash
-sudo usermod -aG disk "$USER"
-```
-
-Log out and back in before restarting the application. Do not put the password
-in the script and do not run the application with `sudo` for regular use.
-
-Some Linux installations allow SMART reads for the `disk` group but still
-block self-test commands with `Operation not permitted`. Grant the installed
-`smartctl` binary the raw-I/O capability once:
-
-```bash
-sudo setcap cap_sys_rawio+ep "$(command -v smartctl)"
-getcap "$(command -v smartctl)"
-```
-
-The second command should show `cap_sys_rawio+ep`. After this, the application
-can start SAS self-tests as the normal user. Reapply the command after a
-smartmontools package upgrade if the capability is removed.
-
-```bash
-sudo usermod -aG disk "$USER"
-```
-
-The `disk` group grants broad raw-disk access. Use a dedicated service account
-or a udev rule instead if that access is too broad for the workstation.
-
 Stop the server with `Ctrl+C`.
 
-## Testing a drive
-
-### Automatic detection
-
-In **Testen** mode:
-
-1. Start the application with the computer's existing disks connected.
-2. During the first five seconds, every visible whole-disk device is recorded
-   as a startup disk and intentionally ignored.
-3. Connect a drive after the five-second startup window.
-4. Wait for Linux to create a whole-disk device such as `/dev/sda`.
-5. The application reads the drive information and starts a short SMART test.
-6. Watch the slot card for the current status and SMART values.
-7. When the test is complete, the result is stored in the inventory.
-
-For SAS disks, the slot shows the self-test progress from `smartctl` every two
-seconds. After completion, the self-test result is stored as `PASSED`, `FAILED`,
-or `NOT_VERIFIABLE` when the controller does not expose a result log.
-
-
-The application listens for Linux block-device events and also polls for
-whole-disk `/dev/sdX` devices. It ignores partitions and NVMe devices. If a
-drive does not appear in `lsblk`, the application cannot test it. In that case,
-check the bay, cable, controller, and the output of:
+The script accepts these database-reset options:
 
 ```bash
-lsblk
+./run.sh --clear-db
+./run.sh --reset
+./run.sh -c
 ```
 
-### Manual slot check
+They permanently delete the local inventory before starting. Do not use them
+when historical test results are still needed.
 
-If automatic detection does not assign the drive to a slot:
+## Disk discovery
 
-1. Insert the drive.
-2. In an empty slot, click **Festplatte prüfen**.
-3. The application scans the available `/dev/sdX` devices.
-4. If the drive is found, it is assigned to that slot.
-5. A known drive shows its existing inventory result; a new drive starts a
-   short test.
+Before starting the application, inspect the devices Linux can see:
 
-### Changing drives
+```bash
+lsblk -d -o NAME,PATH,TYPE,TRAN,MODEL,SERIAL,SIZE
+```
 
-The safest workflow with a dock is:
+The application considers only whole `/dev/sdX` disks. It ignores partitions
+such as `/dev/sda1` and NVMe devices such as `/dev/nvme0n1`.
 
-1. Wait until the current test is finished.
-2. Click **Slot freigeben** if you want to clear the slot immediately.
-3. Physically remove the drive.
+The first five seconds after application startup are a quarantine period:
+
+1. All whole disks already visible are recorded as startup disks and ignored.
+2. Any disk appearing during those five seconds is also ignored.
+3. Only a disk connected after the five-second period is assigned to a slot.
+4. A removed startup disk can be detected if it is reconnected after startup.
+
+This prevents the computer's existing system or storage disks from being tested
+automatically. To test a disk, start the application first, wait five seconds,
+and then connect the disk.
+
+Only eight disks can occupy slots. Additional disks are ignored until a slot
+is released.
+
+## Automatic test workflow
+
+After a disk appears after startup, the application:
+
+1. Reads its model and serial number.
+2. Starts the short test with the same automatic command that works manually:
+
+   ```bash
+   smartctl -t short /dev/sdX
+   ```
+
+3. Reads progress every two seconds with:
+
+   ```bash
+   smartctl -a /dev/sdX
+   ```
+
+4. Converts `XX% of test remaining` into completion progress.
+5. After completion, reads the final extended report:
+
+   ```bash
+   smartctl -x /dev/sdX
+   ```
+
+6. Stores the final result and selected SAS values in `data/inventory.db`.
+
+For SAS disks, the final report uses values that are actually available from
+`-x`. ATA-only attribute columns that the SAS device does not provide are not
+displayed as fake zeroes.
+
+## Disk decision
+
+A disk receives `PASSED` only when all required checks pass:
+
+- SMART Health Status is `OK`.
+- The latest short self-test is `Completed`.
+- Temperature is at most 55 C.
+- Grown defects are zero.
+- Uncorrected read errors are zero.
+- Available pending, reallocated, and uncorrectable sector values meet the
+  configured zero thresholds.
+
+The five main values shown in the interface are:
+
+- SMART Health
+- Short self-test
+- Temperature
+- Grown defects
+- Uncorrected read errors
+
+SAS `Non-medium errors` and SAS link counters such as invalid DWORD,
+running-disparity, and loss-of-synchronization counts are retained and shown
+as connection warnings when present. They do not automatically fail the disk,
+because they may indicate a cable, backplane, or HBA problem rather than a
+media defect.
+
+The thresholds are configured in [src/config.py](src/config.py).
+
+## Selecting disks
+
+Click **Platten auswählen** to open the historical inventory. The inventory
+contains results from previous runs, not only disks currently connected to the
+computer. Drives with `PASSED` are selected automatically; you can change the
+checkboxes manually.
+
+Click **Scanner für Auswahl starten**, then scan a drive barcode. The result is:
+
+- **PLATTE NEHMEN**: the barcode belongs to a selected drive with `PASSED`.
+- **PLATTE NICHT NEHMEN**: the drive is not selected, is unknown, or did not
+  pass.
+
+Barcode values with a trailing period are supported. For example,
+`W4Z1EPVJ.` is also checked as `W4Z1EPVJ`.
+
+The selection view shows only the compact decision indicators. Technical
+diagnostic messages and unavailable fields are kept out of the scan workflow.
+
+## Changing disks
+
+For each disk change:
+
+1. Wait until the current self-test is complete.
+2. Click **Slot freigeben**.
+3. Remove the disk.
 4. Wait until it disappears from `lsblk`.
-5. Insert the next drive.
-6. Wait for the new device to appear in `lsblk`.
-7. Use automatic detection or click **Festplatte prüfen**.
+5. Insert the next disk.
+6. Wait for the new `/dev/sdX` device to appear.
 
-Disks seen during the five-second startup window remain ignored. To test one of
-them, stop and restart the application with that disk removed, then connect it
-after the startup window has finished.
+**Slot freigeben does not physically eject a disk.** It only clears the slot
+and suppresses rediscovery of that still-connected device. Follow the
+controller or enclosure's safe removal procedure.
 
-**Slot freigeben does not physically eject a disk.** It only clears the
-displayed slot and suppresses rediscovery of the same still-connected drive.
-The dock may still require a power cycle between drives if it does not
-reinitialize the USB/SATA connection correctly.
+## Inventory and API
 
-## Selecting drives for use
-
-1. Click **Platten auswählen** in the header.
-2. Review the inventory table.
-3. Drives with `PASSED` are selected automatically.
-4. Check or uncheck drives as needed.
-5. Click **Scanner für Auswahl starten**.
-6. A large overlay appears with **PLATTEN SCANNEN**.
-7. Scan a drive barcode.
-8. The overlay turns green or red:
-   - Green means the drive may be used.
-   - Red means the drive must not be used.
-9. Click **Auswahl ändern** to close the scan overlay and edit the selection.
-
-The barcode scanner should be configured to send an Enter key after each
-barcode. The application also accepts a final `.` and retries the lookup
-without that period.
-
-## Inventory and database
-
-The inventory is stored in:
+The historical inventory is stored in:
 
 ```text
 data/inventory.db
 ```
 
-Each inventory record contains the serial number, model, SMART sector
-counts, SMART health, test result, slot information, and test timestamp.
-
-To reset the inventory deliberately:
-
-```bash
-./run.sh --clear-db
-```
-
-This permanently deletes the local inventory database before starting the
-server. Do not use this option if the stored test history is still needed.
-
-The inventory can also be read as JSON from:
+The JSON inventory endpoint is:
 
 ```text
 http://127.0.0.1:8000/api/inventory
 ```
 
-## Project structure
-
-```text
-hdd-triage/
-├── run.sh                 # Setup and application startup script
-├── requirements.txt        # Python dependencies
-├── data/
-│   └── inventory.db       # SQLite inventory created at runtime
-├── src/
-│   ├── main.py            # FastAPI app, WebSocket actions, slots, polling
-│   ├── monitor.py         # Linux udev block-device event monitor
-│   ├── smart_logic.py     # smartctl calls, parsing, and health evaluation
-│   ├── database.py        # SQLite schema and inventory operations
-│   └── config.py          # Paths, SMART thresholds, and slot count
-├── templates/
-│   └── index.html         # Initial HTML page and slot layout
-└── static/
-    ├── js/main.js         # WebSocket client, rendering, modes, barcode UI
-    └── css/style.css      # Page layout, buttons, cards, and scan overlay
-```
-
-## How the parts work together
-
-### Backend
-
-`src/main.py` starts the FastAPI application and maintains the in-memory state
-of the configured slots. It provides:
-
-- the web page at `/`
-- the inventory API at `/api/inventory`
-- the WebSocket endpoint at `/ws`
-- disk insertion and removal handling
-- automatic polling for `/dev/sdX` devices
-- manual slot checks, retests, and slot release
-
-### Device monitoring
-
-`src/monitor.py` listens to Linux udev block-device events. Partition events
-are ignored because the application tests complete disks, not partitions.
-The background poller in `src/main.py` provides a second detection path for
-docks whose udev events are incomplete or arrive in an unusual order.
-
-### SMART and tests
-
-`src/smart_logic.py` calls `smartctl`, including fallback device modes for
-USB/SATA adapters. It extracts the serial number, model, health result, and
-sector attributes. It also starts and checks short SMART self-tests.
-
-The configured thresholds are in `src/config.py`. A drive is considered
-healthy only when its SMART health passes and pending, reallocated, and
-uncorrectable sector counts are within those thresholds. For SAS drives, the
-short self-test must pass, grown defects and uncorrected read errors must be
-zero, and the measured temperature must not exceed 55 C. SAS link errors and
-non-medium errors are displayed as warnings because they may indicate a cable,
-backplane, or HBA problem rather than a disk-medium failure.
-
-### Database
-
-`src/database.py` creates and migrates the SQLite `hdds` table and saves the
-final result after a test. The serial number is the primary key, so testing
-the same drive again updates its existing inventory record.
-
-### Frontend
-
-`templates/index.html` provides the initial page. `static/js/main.js` opens a
-WebSocket and updates slot cards immediately when the backend broadcasts a
-change. It also handles the Testen/Platten auswählen modes, barcode scans,
-inventory checkboxes, and the green/red scan overlay.
+The database stores the serial number, model, test result, self-test result,
+SMART health, available SAS diagnostics, test duration, slot, and timestamp.
 
 ## Troubleshooting
 
-### The drive is not detected
+### `No module named uvicorn`
 
-First verify that Linux sees the drive:
+Run the project startup script from the project directory. It installs and
+uses the local virtual environment:
+
+```bash
+cd ~/hdd-triage
+rm -rf venv
+./run.sh
+```
+
+If virtual-environment creation fails, install `python3-venv` and retry.
+
+### `Permission denied` or `Operation not permitted`
+
+Check both permissions and the raw-I/O capability:
+
+```bash
+id -nG
+getcap "$(command -v smartctl)"
+ls -l /dev/sda /dev/sg* 2>/dev/null
+```
+
+The user must be in the `disk` group and `smartctl` should have
+`cap_sys_rawio+ep`. Do not hardcode a password and do not run the application
+with `sudo` as a permanent workaround.
+
+### The disk is not detected
+
+Confirm that Linux creates a whole-disk node:
 
 ```bash
 lsblk
 ls /dev/sd*
 ```
 
-If no new device appears, the issue is below the application level. Check the
-dock, power, USB cable, USB port, and drive.
+If no new `/dev/sdX` appears, check the HBA, bay, power, cable, backplane, and
+controller before investigating the application.
 
-### SMART permission errors
+### The self-test is unsupported
 
-If the log contains:
-
-```text
-Permission denied
-```
-
-verify the permissions of the device and the user running the server. For a
-temporary diagnostic run, query a disk directly with:
+Test the same command manually:
 
 ```bash
-sudo smartctl -d scsi -a /dev/sda
+smartctl -t short /dev/sdX
+smartctl -a /dev/sdX
 ```
 
-### The dock needs a power cycle
+The output must include self-test progress and a self-test log. If the device
+reports `Operation not supported`, the disk/controller path cannot provide a
+usable short self-test result.
 
-Some USB/SATA docks keep the old device state after a drive is removed. If a
-new drive does not appear in `lsblk`, power-cycle the dock, insert the new
-drive, and verify `lsblk` before using the application again.
+### The browser shows old layout or JavaScript
 
-### The browser shows old JavaScript
-
-Reload the page with:
+Reload with:
 
 ```text
 Ctrl+Shift+R
 ```
 
-The page uses versioned JavaScript URLs so that normal browser caching does
-not hide frontend changes.
+The page uses versioned static asset URLs to avoid stale browser caching.
+
+## Project structure
+
+```text
+hdd-triage/
+├── run.sh
+├── requirements.txt
+├── data/
+│   └── inventory.db
+├── src/
+│   ├── main.py
+│   ├── monitor.py
+│   ├── smart_logic.py
+│   ├── database.py
+│   └── config.py
+├── templates/
+│   └── index.html
+└── static/
+    ├── js/main.js
+    └── css/style.css
+```
