@@ -156,6 +156,17 @@ body {
     margin-bottom: 1rem;
 }
 
+.key-indicators {
+    margin: 0.6rem 0;
+    padding: 0.45rem 0.65rem;
+    border-left: 3px solid #38bdf8;
+    background: rgba(15, 23, 42, 0.45);
+}
+
+.key-indicators p {
+    margin: 0.15rem 0;
+}
+
 .db-tag {
     background-color: #3b82f6;
     color: #ffffff;
@@ -345,15 +356,35 @@ body {
 }
 
 .inventory-row {
-    display: grid;
-    grid-template-columns: 30px 1.2fr 1.5fr 0.8fr repeat(3, 1fr);
+    display: flex;
     align-items: center;
-    gap: 10px;
+    flex-wrap: wrap;
+    gap: 8px 14px;
     padding: 10px;
     background: #1e293b;
     border: 1px solid #334155;
     border-radius: 6px;
     color: #cbd5e1;
+}
+
+.inventory-row > span {
+    flex: 1 1 160px;
+    min-width: 160px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.inventory-row > span strong {
+    white-space: nowrap;
+}
+
+.inventory-row > span.inventory-status {
+    white-space: nowrap;
+}
+
+.inventory-row > .inventory-checkbox {
+    flex: 0 0 auto;
+    width: 16px;
 }
 
 .inventory-status.passed {
@@ -371,9 +402,17 @@ body {
         flex-direction: column;
     }
 
-    .scanner-status,
-    .inventory-row {
+    .scanner-status {
         grid-template-columns: 1fr;
         flex-wrap: wrap;
+    }
+
+    .inventory-row {
+        align-items: flex-start;
+    }
+
+    .inventory-row > span {
+        flex: 1 1 calc(50% - 14px);
+        min-width: calc(50% - 14px);
     }
 }

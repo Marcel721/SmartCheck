@@ -18,6 +18,17 @@ def init_db():
             reallocated_sectors INTEGER,
             uncorrectable_sectors INTEGER,
             smart_overall TEXT,
+            self_test_result TEXT,
+            temperature_c INTEGER,
+            trip_temperature_c INTEGER,
+            power_on_time TEXT,
+            grown_defects INTEGER,
+            uncorrected_read_errors INTEGER,
+            non_medium_errors INTEGER,
+            invalid_dword_count INTEGER,
+            running_disparity_errors INTEGER,
+            loss_of_sync_errors INTEGER,
+            long_self_test_duration TEXT,
             test_result TEXT,
             slot_id INTEGER,
             tested_at TEXT,
@@ -33,6 +44,26 @@ def init_db():
         cursor.execute("ALTER TABLE hdds ADD COLUMN test_duration_seconds REAL")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE hdds ADD COLUMN self_test_result TEXT")
+    except sqlite3.OperationalError:
+        pass
+    for column, column_type in (
+        ("temperature_c", "INTEGER"),
+        ("trip_temperature_c", "INTEGER"),
+        ("power_on_time", "TEXT"),
+        ("grown_defects", "INTEGER"),
+        ("uncorrected_read_errors", "INTEGER"),
+        ("non_medium_errors", "INTEGER"),
+        ("invalid_dword_count", "INTEGER"),
+        ("running_disparity_errors", "INTEGER"),
+        ("loss_of_sync_errors", "INTEGER"),
+        ("long_self_test_duration", "TEXT"),
+    ):
+        try:
+            cursor.execute(f"ALTER TABLE hdds ADD COLUMN {column} {column_type}")
+        except sqlite3.OperationalError:
+            pass
     conn.commit()
     conn.close()
 
@@ -44,15 +75,29 @@ def save_or_update_hdd(data: dict) -> str:
     cursor.execute("""
         INSERT INTO hdds (
             serial_number, model, pending_sectors, reallocated_sectors,
-            uncorrectable_sectors, smart_overall, test_result, slot_id, tested_at,
-            test_duration_seconds
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            uncorrectable_sectors, smart_overall, self_test_result,
+            temperature_c, trip_temperature_c, power_on_time, grown_defects,
+            uncorrected_read_errors, non_medium_errors, invalid_dword_count,
+            running_disparity_errors, loss_of_sync_errors, long_self_test_duration,
+            test_result, slot_id, tested_at, test_duration_seconds
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(serial_number) DO UPDATE SET
             model=excluded.model,
             pending_sectors=excluded.pending_sectors,
             reallocated_sectors=excluded.reallocated_sectors,
             uncorrectable_sectors=excluded.uncorrectable_sectors,
             smart_overall=excluded.smart_overall,
+            self_test_result=excluded.self_test_result,
+            temperature_c=excluded.temperature_c,
+            trip_temperature_c=excluded.trip_temperature_c,
+            power_on_time=excluded.power_on_time,
+            grown_defects=excluded.grown_defects,
+            uncorrected_read_errors=excluded.uncorrected_read_errors,
+            non_medium_errors=excluded.non_medium_errors,
+            invalid_dword_count=excluded.invalid_dword_count,
+            running_disparity_errors=excluded.running_disparity_errors,
+            loss_of_sync_errors=excluded.loss_of_sync_errors,
+            long_self_test_duration=excluded.long_self_test_duration,
             test_result=excluded.test_result,
             slot_id=excluded.slot_id,
             tested_at=excluded.tested_at,
@@ -64,6 +109,17 @@ def save_or_update_hdd(data: dict) -> str:
         data.get("reallocated_sectors", 0),
         data.get("uncorrectable_sectors", 0),
         data.get("smart_overall", "UNKNOWN"),
+        data.get("self_test_result") or data.get("test_results", {}).get("short_test", "UNKNOWN"),
+        data.get("temperature_c"),
+        data.get("trip_temperature_c"),
+        data.get("power_on_time"),
+        data.get("grown_defects"),
+        data.get("uncorrected_read_errors"),
+        data.get("non_medium_errors"),
+        data.get("invalid_dword_count"),
+        data.get("running_disparity_errors"),
+        data.get("loss_of_sync_errors"),
+        data.get("long_self_test_duration"),
         data.get("test_result", "UNKNOWN"),
         data.get("slot_id", 1),
         now_str,

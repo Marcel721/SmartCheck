@@ -10,6 +10,9 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 MAX_PENDING_SECTORS = 0
 MAX_REALLOCATED_SECTORS = 0
 MAX_UNCORRECTABLE_SECTORS = 0
+MAX_TEMPERATURE_C = 55
+MAX_GROWN_DEFECTS = 0
+MAX_UNCORRECTED_READ_ERRORS = 0
 
-# Anzahl der max. darzustellenden Slots auf der Webseite (z. B. 24)
-MAX_SLOTS = 24
+# Anzahl der darzustellenden Slots auf der Webseite
+MAX_SLOTS = 8

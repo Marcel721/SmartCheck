@@ -14,6 +14,17 @@ do
 done
 
 echo "=== Starte HDD Triage Station ==="
+permission_warning=false
+for device in /dev/sd? /dev/sg*; do
+    if [[ -e "$device" && ! -r "$device" ]]; then
+        permission_warning=true
+    fi
+done
+if [[ "$permission_warning" == true ]]; then
+    echo "[WARNUNG] Kein Leserecht für mindestens ein Laufwerk."
+    echo "[WARNUNG] Einmalig ausführen: sudo usermod -aG disk \"$USER\""
+    echo "[WARNUNG] Danach ab- und wieder anmelden; dieses Programm nicht mit sudo starten."
+fi
 
 # Datenbank löschen, falls das Flag gesetzt wurde
 if [ "$CLEAR_DB" = true ]; then
@@ -23,15 +34,12 @@ if [ "$CLEAR_DB" = true ]; then
 fi
 
 # Virtuelle Umgebung / Abhängigkeiten prüfen
-if [ -d "venv" ]; then
-    source venv/bin/activate
-else
+if [ ! -x "venv/bin/python" ]; then
     python3 -m venv venv
-    source venv/bin/activate
 fi
 
 echo "Installiere Abhängigkeiten..."
-pip install -q -r requirements.txt
+venv/bin/python -m pip install -q -r requirements.txt
 
 echo "Starte Webserver auf http://localhost:8000 ..."
-python3 -m uvicorn src.main:app --host 0.0.0.0 --port 8000
+venv/bin/python -m uvicorn src.main:app --host 0.0.0.0 --port 8000

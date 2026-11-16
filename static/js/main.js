@@ -57,11 +57,27 @@ function renderSlot(slotId) {
     if (slot.info) {
         let dbBadge = slot.from_db ? `<span class="db-tag">📁 Aus Inventar</span>` : "";
         let testTime = slot.info.tested_at ? `<p class="test-time"><strong>Getestet am:</strong> ${slot.info.tested_at}</p>` : "";
+        let testResults = "";
+        if (slot.info.test_results) {
+            const results = slot.info.test_results;
+            testResults = `
+                <div class="test-results">
+                    <p><strong>Entscheidung: ${slot.status}</strong></p>
+                    ${results.short_test && results.short_test !== "NOT_RUN" ? `<p>Selftest: ${results.short_test}</p>` : ""}
+                </div>
+            `;
+        }
         infoHtml = `
-            <p><strong>SN:</strong> ${slot.info.serial_number || 'N/A'} ${dbBadge}</p>
-            <p><strong>Modell:</strong> ${slot.info.model || 'N/A'}</p>
-            <p><strong>Pending:</strong> ${slot.info.pending_sectors ?? 0}</p>
-            <p><strong>Reallocated:</strong> ${slot.info.reallocated_sectors ?? 0}</p>
+            ${slot.info.serial_number ? `<p><strong>SN:</strong> ${slot.info.serial_number} ${dbBadge}</p>` : ""}
+            ${slot.info.model && slot.info.model !== "UNKNOWN" ? `<p><strong>Modell:</strong> ${slot.info.model}</p>` : ""}
+            <div class="key-indicators">
+                <p><strong>SMART Health:</strong> ${slot.info.smart_overall}</p>
+                ${slot.info.test_results?.short_test && slot.info.test_results.short_test !== "NOT_RUN" ? `<p><strong>Selftest:</strong> ${slot.info.test_results.short_test}</p>` : ""}
+                ${slot.info.temperature_c != null ? `<p><strong>Temperatur:</strong> ${slot.info.temperature_c} °C</p>` : ""}
+                ${slot.info.grown_defects != null ? `<p><strong>Grown defects:</strong> ${slot.info.grown_defects}</p>` : ""}
+                ${slot.info.uncorrected_read_errors != null ? `<p><strong>Unkorrigierte Lesefehler:</strong> ${slot.info.uncorrected_read_errors}</p>` : ""}
+            </div>
+            ${testResults}
             ${testTime}
         `;
     }
@@ -166,8 +182,11 @@ function renderInventory() {
             <span><strong>${hdd.serial_number}</strong></span>
             <span>${hdd.model || "UNKNOWN"}</span>
             <span class="inventory-status ${String(hdd.test_result).toLowerCase()}">${hdd.test_result}</span>
-            <span>Pending: ${hdd.pending_sectors ?? 0}</span>
-            <span>Reallocated: ${hdd.reallocated_sectors ?? 0}</span>
+            ${hdd.smart_overall ? `<span>SMART: ${hdd.smart_overall}</span>` : ""}
+            ${hdd.self_test_result && hdd.self_test_result !== "UNKNOWN" ? `<span>Selbsttest: ${hdd.self_test_result}</span>` : ""}
+            ${hdd.temperature_c != null ? `<span>Temperatur: ${hdd.temperature_c} °C</span>` : ""}
+            ${hdd.grown_defects != null ? `<span>Grown defects: ${hdd.grown_defects}</span>` : ""}
+            ${hdd.uncorrected_read_errors != null ? `<span>Unkorrigierte Lesefehler: ${hdd.uncorrected_read_errors}</span>` : ""}
             <span>${hdd.tested_at || "kein Datum"}</span>
         </label>
     `).join("");

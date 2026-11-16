@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HDD Triage Station</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=2">
 </head>
 <body>
     <header class="header">
@@ -26,10 +26,29 @@
                 </div>
                 <div class="hdd-info">
                     {% if slot.info %}
-                        <p><strong>SN:</strong> {{ slot.info.serial_number or 'N/A' }} {% if slot.from_db %}<span class="db-tag">📁 Aus Inventar</span>{% endif %}</p>
-                        <p><strong>Modell:</strong> {{ slot.info.model or 'N/A' }}</p>
-                        <p><strong>Pending:</strong> {{ slot.info.pending_sectors or 0 }}</p>
-                        <p><strong>Reallocated:</strong> {{ slot.info.reallocated_sectors or 0 }}</p>
+                        {% if slot.info.serial_number %}<p><strong>SN:</strong> {{ slot.info.serial_number }} {% if slot.from_db %}<span class="db-tag">📁 Aus Inventar</span>{% endif %}</p>{% endif %}
+                        {% if slot.info.model and slot.info.model != 'UNKNOWN' %}<p><strong>Modell:</strong> {{ slot.info.model }}</p>{% endif %}
+                        <div class="key-indicators">
+                            <p><strong>SMART Health:</strong> {{ slot.info.smart_overall }}</p>
+                            {% if slot.info.test_results and slot.info.test_results.short_test != 'NOT_RUN' %}
+                                <p><strong>Selftest:</strong> {{ slot.info.test_results.short_test }}</p>
+                            {% endif %}
+                            {% if slot.info.temperature_c is not none %}
+                                <p><strong>Temperatur:</strong> {{ slot.info.temperature_c }} °C</p>
+                            {% endif %}
+                            {% if slot.info.grown_defects is not none %}
+                                <p><strong>Grown defects:</strong> {{ slot.info.grown_defects }}</p>
+                            {% endif %}
+                            {% if slot.info.uncorrected_read_errors is not none %}
+                                <p><strong>Unkorrigierte Lesefehler:</strong> {{ slot.info.uncorrected_read_errors }}</p>
+                            {% endif %}
+                        </div>
+                        {% if slot.info.test_results %}
+                            <div class="test-results">
+                                <p><strong>Prüfergebnisse:</strong></p>
+                                <p>Entscheidung: {{ slot.status }}</p>
+                            </div>
+                        {% endif %}
                         {% if slot.info.tested_at %}
                             <p class="test-time"><strong>Getestet am:</strong> {{ slot.info.tested_at }}</p>
                         {% endif %}
@@ -71,6 +90,6 @@
 
     <div id="scan-popup" class="popup hidden"></div>
 
-    <script src="/static/js/main.js?v=9"></script>
+        <script src="/static/js/main.js?v=16"></script>
 </body>
 </html>

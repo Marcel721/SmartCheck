@@ -1,6 +1,7 @@
 import asyncio
 import glob
 import os
+import time
 import traceback
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -51,6 +52,8 @@ slots_state: Dict[int, Dict[str, Any]] = {
 }
 device_locks = defaultdict(asyncio.Lock)
 manually_ejected_devices: Dict[str, str] = {}
+ignored_startup_devices: Set[str] = set()
+startup_ignore_until = 0.0
 
 def empty_slot(slot_id: int) -> Dict[str, Any]:
     return {
@@ -64,6 +67,11 @@ def start_test_state(slot: Dict[str, Any]) -> None:
     slot["test_duration_seconds"] = 0
     slot["test_generation"] = slot.get("test_generation", 0) + 1
 
+def set_short_test_result(info: Dict[str, Any], started: bool) -> None:
+    info.setdefault("test_results", {})["short_test"] = (
+        "STARTED" if started else "NOT_SUPPORTED"
+    )
+
 def assign_slot(dev_node: str) -> int:
     for s_id, s_data in slots_state.items():
         if s_data["device"] == dev_node:
@@ -71,7 +79,7 @@ def assign_slot(dev_node: str) -> int:
     for s_id, s_data in slots_state.items():
         if s_data["status"] == "EMPTY":
             return s_id
-    return 1
+    return None
 
 def get_slot_by_device(dev_node: str) -> int:
     for s_id, s_data in slots_state.items():
@@ -81,13 +89,19 @@ def get_slot_by_device(dev_node: str) -> int:
 
 async def handle_disk_added(dev_node: str, preferred_slot_id: int = None):
     try:
+        if time.monotonic() < startup_ignore_until:
+            ignored_startup_devices.add(dev_node)
+            print(f"[STARTUP] Ignoriere während der ersten 5 Sekunden: {dev_node}")
+            return
+        if dev_node in ignored_startup_devices:
+            return
         async with device_locks[dev_node]:
             info = None
             serial = "UNKNOWN"
             for attempt in range(3):
                 if not os.path.exists(dev_node):
                     return
-                info = smart_logic.get_disk_info(dev_node)
+                info = await asyncio.to_thread(smart_logic.get_disk_info, dev_node)
                 serial = info.get("serial_number", "UNKNOWN")
                 if serial != "UNKNOWN":
                     break
@@ -113,16 +127,32 @@ async def handle_disk_added(dev_node: str, preferred_slot_id: int = None):
                 if preferred_slot_id in slots_state and slots_state[preferred_slot_id]["status"] == "EMPTY"
                 else assign_slot(dev_node)
             )
+            if slot_id is None:
+                print(f"[BACKEND INFO] Ignoriere {dev_node}: alle {MAX_SLOTS} Slots sind belegt.")
+                return
             current_slot = slots_state[slot_id]
             current_serial = current_slot.get("info", {}).get("serial_number") if current_slot.get("info") else None
             if current_serial and current_serial != serial:
                 print(f"[BACKEND] Medienwechsel in Slot {slot_id}: {current_serial} -> {serial}")
                 slots_state[slot_id] = empty_slot(slot_id)
 
-            db_entry = get_hdd_by_serial(serial)
+            db_entry = await asyncio.to_thread(get_hdd_by_serial, serial)
 
             if db_entry:
                 print(f"[BACKEND DB-HIT] Festplatte SN '{serial}' existiert bereits im Inventar! Status: {db_entry['test_result']}")
+                stored_fields = (
+                    "temperature_c",
+                    "trip_temperature_c",
+                    "power_on_time",
+                    "grown_defects",
+                    "uncorrected_read_errors",
+                    "quality_warnings",
+                )
+                for field in stored_fields:
+                    if db_entry.get(field) is not None:
+                        info[field] = db_entry[field]
+                if db_entry.get("self_test_result"):
+                    info.setdefault("test_results", {})["short_test"] = db_entry["self_test_result"]
                 slots_state[slot_id] = {
                     "slot_id": slot_id,
                     "device": dev_node,
@@ -155,8 +185,9 @@ async def handle_disk_added(dev_node: str, preferred_slot_id: int = None):
                 "test_generation": current_slot.get("test_generation", 0) + 1
             }
 
+            short_test_started = await asyncio.to_thread(smart_logic.start_short_test, dev_node)
+            set_short_test_result(info, short_test_started)
             await manager.broadcast({"type": "SLOT_UPDATE", "slot": slots_state[slot_id]})
-            smart_logic.start_short_test(dev_node)
             asyncio.create_task(poll_test_progress(
                 dev_node, slot_id, slots_state[slot_id]["test_generation"]
             ))
@@ -176,6 +207,8 @@ async def check_disk_for_slot(slot_id: int):
         return
 
     for dev_node in sorted(glob.glob("/dev/sd[a-z]")):
+        if dev_node in ignored_startup_devices:
+            continue
         if get_slot_by_device(dev_node):
             continue
         manually_ejected_devices.pop(dev_node, None)
@@ -183,7 +216,7 @@ async def check_disk_for_slot(slot_id: int):
         for attempt in range(3):
             if not os.path.exists(dev_node):
                 break
-            info = smart_logic.get_disk_info(dev_node)
+            info = await asyncio.to_thread(smart_logic.get_disk_info, dev_node)
             if info.get("serial_number") != "UNKNOWN":
                 break
             if attempt < 2:
@@ -191,7 +224,7 @@ async def check_disk_for_slot(slot_id: int):
 
         if info and info.get("serial_number") != "UNKNOWN":
             serial = info["serial_number"]
-            db_entry = get_hdd_by_serial(serial)
+            db_entry = await asyncio.to_thread(get_hdd_by_serial, serial)
             if db_entry:
                 message = f"Festplatte {serial} wurde gefunden. Bereits getestet: {db_entry['test_result']}."
                 status = "already_tested"
@@ -243,11 +276,11 @@ async def start_manual_retest(slot_id: int):
             return
 
         dev_node = slots_state[slot_id]["device"]
-        if not smart_logic.is_disk_present(dev_node):
+        if not await asyncio.to_thread(smart_logic.is_disk_present, dev_node):
             return
 
         print(f"[BACKEND RETEST] Manuell angeforderter Re-Test für Slot {slot_id} ({dev_node})...")
-        info = smart_logic.get_disk_info(dev_node)
+        info = await asyncio.to_thread(smart_logic.get_disk_info, dev_node)
 
         slots_state[slot_id]["status"] = "TESTING"
         slots_state[slot_id]["progress"] = 0
@@ -255,8 +288,9 @@ async def start_manual_retest(slot_id: int):
         slots_state[slot_id]["from_db"] = False
         start_test_state(slots_state[slot_id])
 
+        short_test_started = await asyncio.to_thread(smart_logic.start_short_test, dev_node)
+        set_short_test_result(info, short_test_started)
         await manager.broadcast({"type": "SLOT_UPDATE", "slot": slots_state[slot_id]})
-        smart_logic.start_short_test(dev_node)
         asyncio.create_task(poll_test_progress(
             dev_node, slot_id, slots_state[slot_id]["test_generation"]
         ))
@@ -267,9 +301,9 @@ async def start_manual_retest(slot_id: int):
 async def poll_test_progress(dev_node: str, slot_id: int, generation: int):
     while True:
         try:
-            await asyncio.sleep(4)
+            await asyncio.sleep(2)
 
-            if not smart_logic.is_disk_present(dev_node):
+            if not await asyncio.to_thread(smart_logic.is_disk_present, dev_node):
                 if not os.path.exists(dev_node):
                     print(f"[BACKEND INFO] Festplatte {dev_node} herausgezogen. Gebe Slot {slot_id} frei.")
                     await handle_disk_removed(dev_node)
@@ -284,7 +318,7 @@ async def poll_test_progress(dev_node: str, slot_id: int, generation: int):
             ):
                 break
 
-            progress, finished = smart_logic.check_test_progress(dev_node)
+            progress, finished = await asyncio.to_thread(smart_logic.check_test_progress, dev_node)
             slots_state[slot_id]["progress"] = progress
             started_at = slots_state[slot_id].get("test_started_at")
             if started_at:
@@ -294,15 +328,36 @@ async def poll_test_progress(dev_node: str, slot_id: int, generation: int):
                 )
 
             if finished:
-                final_info = smart_logic.get_disk_info(dev_node)
+                short_test_result = slots_state[slot_id]["info"].get(
+                    "test_results", {}
+                ).get("short_test", "NOT_RUN")
+                final_info = await asyncio.to_thread(smart_logic.get_disk_info, dev_node)
+                final_info.update(await asyncio.to_thread(smart_logic.get_extended_disk_info, dev_node))
+                test_results = final_info.setdefault("test_results", {})
+                test_results["short_test"] = (
+                    await asyncio.to_thread(smart_logic.get_self_test_result, dev_node)
+                    if short_test_result == "STARTED"
+                    else short_test_result
+                )
+                if test_results["short_test"] == "NOT_VERIFIABLE":
+                    test_results["reason"] = (
+                        f"{test_results.get('reason', '')}; "
+                        "SAS-Selbsttest wurde beendet, aber das Ergebnis wird nicht protokolliert"
+                    ).lstrip("; ")
+                elif test_results["short_test"] == "NOT_SUPPORTED":
+                    test_results["reason"] = (
+                        f"{test_results.get('reason', '')}; "
+                        "SAS-Short-Selbsttest vom Gerät nicht unterstützt"
+                    ).lstrip("; ")
                 final_result = smart_logic.evaluate_health(final_info)
 
                 slots_state[slot_id]["status"] = final_result
                 slots_state[slot_id]["info"] = final_info
 
-                tested_at = save_or_update_hdd({
+                tested_at = await asyncio.to_thread(save_or_update_hdd, {
                     **final_info,
                     "test_result": final_result,
+                    "self_test_result": test_results["short_test"],
                     "slot_id": slot_id,
                     "test_duration_seconds": slots_state[slot_id]["test_duration_seconds"]
                 })
@@ -327,12 +382,15 @@ async def background_poll_loop():
         await asyncio.sleep(2.5)
         try:
             devices = sorted(glob.glob("/dev/sd[a-z]"))
+            ignored_startup_devices.intersection_update(devices)
             for dev_node in list(manually_ejected_devices):
                 if dev_node not in devices and not os.path.exists(dev_node):
                     manually_ejected_devices.pop(dev_node, None)
 
             for dev_node in devices:
-                info = smart_logic.get_disk_info(dev_node)
+                if dev_node in ignored_startup_devices:
+                    continue
+                info = await asyncio.to_thread(smart_logic.get_disk_info, dev_node)
                 serial = info.get("serial_number", "UNKNOWN")
                 slot_id = get_slot_by_device(dev_node)
 
@@ -374,7 +432,14 @@ async def background_poll_loop():
 
 @app.on_event("startup")
 async def startup_event():
+    global startup_ignore_until
     init_db()
+    startup_ignore_until = time.monotonic() + 5
+    ignored_startup_devices.update(glob.glob("/dev/sd[a-z]"))
+    print(
+        "[STARTUP] Ignoriere alle während der ersten 5 Sekunden sichtbaren "
+        f"Festplatten: {', '.join(sorted(ignored_startup_devices)) or 'keine'}"
+    )
     monitor = DiskMonitor(handle_disk_added, handle_disk_removed)
     await monitor.start()
     asyncio.create_task(background_poll_loop())
@@ -389,7 +454,7 @@ async def index(request: Request):
 
 @app.get("/api/inventory")
 async def api_inventory():
-    return get_all_hdds()
+    return await asyncio.to_thread(get_all_hdds)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -403,7 +468,9 @@ async def websocket_endpoint(websocket: WebSocket):
             if data.get("type") == "BARCODE_SCAN":
                 serial = data.get("serial", "").strip()
                 lookup_serial = serial[:-1] if serial.endswith(".") else serial
-                result = get_hdd_by_serial(serial) or get_hdd_by_serial(lookup_serial)
+                result = await asyncio.to_thread(get_hdd_by_serial, serial)
+                if not result:
+                    result = await asyncio.to_thread(get_hdd_by_serial, lookup_serial)
                 matched_serial = result["serial_number"] if result else lookup_serial
                 await websocket.send_json({
                     "type": "SCAN_RESULT",

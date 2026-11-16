@@ -5,8 +5,9 @@ drives. It reads SMART information, runs a short SMART self-test, stores the
 result in a local SQLite inventory, and provides a barcode-based workflow for
 selecting drives that are safe to use.
 
-The application is designed for a test station with a USB/SATA dock or another
-way of connecting drives to a Linux computer. It runs locally and is normally
+The application is designed for a test station with direct internal SATA/SAS
+connections, a USB/SATA dock, or another way of connecting drives to a Linux
+computer. It runs locally and is normally
 opened at <http://127.0.0.1:8000/>.
 
 ## What it is used for
@@ -38,18 +39,28 @@ Barcode values with a trailing period are supported. For example,
 - Python 3.10 or newer
 - `smartctl` from the `smartmontools` package
 - Permission to read the connected block devices, such as `/dev/sda`
-- A USB/SATA dock or another supported disk connection
+- Direct SATA/SAS connections or a USB/SATA dock with SMART passthrough
 - A USB barcode scanner that behaves like a keyboard
 
 On Debian or Ubuntu, install the system package with:
 
 ```bash
 sudo apt update
-sudo apt install smartmontools python3 python3-venv
+sudo apt install smartmontools libcap2-bin python3 python3-venv
 ```
 
 The Python dependencies are listed in
 [requirements.txt](./requirements.txt) and are installed by `run.sh`.
+
+Before starting the application, confirm that Linux sees the installed drives:
+
+```bash
+lsblk -d -o NAME,PATH,TYPE,TRAN,MODEL,SERIAL,SIZE
+sudo smartctl -d scsi -i /dev/sda
+```
+
+Use the whole-disk device names shown by `lsblk`, such as `/dev/sda`; do not
+use partition names such as `/dev/sda1`.
 
 ## Starting the application
 
@@ -72,18 +83,35 @@ Open the application in a browser:
 http://127.0.0.1:8000/
 ```
 
-If `smartctl` reports `Permission denied` for a device, the current user does
-not have sufficient access to the disk. For a quick test, stop the server and
-start it with:
+If `smartctl` reports `Permission denied` for a device, grant the application
+user access to raw disk devices:
 
 ```bash
-sudo ./run.sh
+sudo usermod -aG disk "$USER"
 ```
 
-For regular use, it is preferable to configure the required device
-permissions for the user instead of running the whole application as root.
-After changing group membership, log out and in again before restarting the
-application.
+Log out and back in before restarting the application. Do not put the password
+in the script and do not run the application with `sudo` for regular use.
+
+Some Linux installations allow SMART reads for the `disk` group but still
+block self-test commands with `Operation not permitted`. Grant the installed
+`smartctl` binary the raw-I/O capability once:
+
+```bash
+sudo setcap cap_sys_rawio+ep "$(command -v smartctl)"
+getcap "$(command -v smartctl)"
+```
+
+The second command should show `cap_sys_rawio+ep`. After this, the application
+can start SAS self-tests as the normal user. Reapply the command after a
+smartmontools package upgrade if the capability is removed.
+
+```bash
+sudo usermod -aG disk "$USER"
+```
+
+The `disk` group grants broad raw-disk access. Use a dedicated service account
+or a udev rule instead if that access is too broad for the workstation.
 
 Stop the server with `Ctrl+C`.
 
@@ -93,16 +121,24 @@ Stop the server with `Ctrl+C`.
 
 In **Testen** mode:
 
-1. Connect a drive to the dock.
-2. Wait for Linux to create a block device such as `/dev/sda`.
-3. The application reads the drive information and starts a short SMART test.
-4. Watch the slot card for the current status and SMART values.
-5. When the test is complete, the result is stored in the inventory.
+1. Start the application with the computer's existing disks connected.
+2. During the first five seconds, every visible whole-disk device is recorded
+   as a startup disk and intentionally ignored.
+3. Connect a drive after the five-second startup window.
+4. Wait for Linux to create a whole-disk device such as `/dev/sda`.
+5. The application reads the drive information and starts a short SMART test.
+6. Watch the slot card for the current status and SMART values.
+7. When the test is complete, the result is stored in the inventory.
+
+For SAS disks, the slot shows the self-test progress from `smartctl` every two
+seconds. After completion, the self-test result is stored as `PASSED`, `FAILED`,
+or `NOT_VERIFIABLE` when the controller does not expose a result log.
+
 
 The application listens for Linux block-device events and also polls for
-devices. Some USB/SATA docks take time to reinitialize after a drive change.
-If the dock does not expose a new device in `lsblk`, the application cannot
-test it. In that case, check the dock power, USB connection, and the output of:
+whole-disk `/dev/sdX` devices. It ignores partitions and NVMe devices. If a
+drive does not appear in `lsblk`, the application cannot test it. In that case,
+check the bay, cable, controller, and the output of:
 
 ```bash
 lsblk
@@ -130,6 +166,10 @@ The safest workflow with a dock is:
 5. Insert the next drive.
 6. Wait for the new device to appear in `lsblk`.
 7. Use automatic detection or click **Festplatte prüfen**.
+
+Disks seen during the five-second startup window remain ignored. To test one of
+them, stop and restart the application with that disk removed, then connect it
+after the startup window has finished.
 
 **Slot freigeben does not physically eject a disk.** It only clears the
 displayed slot and suppresses rediscovery of the same still-connected drive.
@@ -230,7 +270,11 @@ sector attributes. It also starts and checks short SMART self-tests.
 
 The configured thresholds are in `src/config.py`. A drive is considered
 healthy only when its SMART health passes and pending, reallocated, and
-uncorrectable sector counts are within those thresholds.
+uncorrectable sector counts are within those thresholds. For SAS drives, the
+short self-test must pass, grown defects and uncorrected read errors must be
+zero, and the measured temperature must not exceed 55 C. SAS link errors and
+non-medium errors are displayed as warnings because they may indicate a cable,
+backplane, or HBA problem rather than a disk-medium failure.
 
 ### Database
 
@@ -268,10 +312,10 @@ Permission denied
 ```
 
 verify the permissions of the device and the user running the server. For a
-temporary diagnostic run:
+temporary diagnostic run, query a disk directly with:
 
 ```bash
-sudo ./run.sh
+sudo smartctl -d scsi -a /dev/sda
 ```
 
 ### The dock needs a power cycle
