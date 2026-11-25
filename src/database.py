@@ -25,6 +25,7 @@ def init_db():
             grown_defects INTEGER,
             uncorrected_read_errors INTEGER,
             non_medium_errors INTEGER,
+            smart_report TEXT,
             invalid_dword_count INTEGER,
             running_disparity_errors INTEGER,
             loss_of_sync_errors INTEGER,
@@ -32,7 +33,9 @@ def init_db():
             test_result TEXT,
             slot_id INTEGER,
             tested_at TEXT,
-            test_duration_seconds REAL
+            test_duration_seconds REAL,
+            wipe_status TEXT,
+            wipe_finished_at TEXT
         )
     """)
     # Automatisch 'tested_at'-Spalte nachrüsten, falls Datenbank schon existiert
@@ -48,6 +51,14 @@ def init_db():
         cursor.execute("ALTER TABLE hdds ADD COLUMN self_test_result TEXT")
     except sqlite3.OperationalError:
         pass
+    try:
+        cursor.execute("ALTER TABLE hdds ADD COLUMN wipe_status TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        cursor.execute("ALTER TABLE hdds ADD COLUMN wipe_finished_at TEXT")
+    except sqlite3.OperationalError:
+        pass
     for column, column_type in (
         ("temperature_c", "INTEGER"),
         ("trip_temperature_c", "INTEGER"),
@@ -55,6 +66,7 @@ def init_db():
         ("grown_defects", "INTEGER"),
         ("uncorrected_read_errors", "INTEGER"),
         ("non_medium_errors", "INTEGER"),
+        ("smart_report", "TEXT"),
         ("invalid_dword_count", "INTEGER"),
         ("running_disparity_errors", "INTEGER"),
         ("loss_of_sync_errors", "INTEGER"),
@@ -77,10 +89,10 @@ def save_or_update_hdd(data: dict) -> str:
             serial_number, model, pending_sectors, reallocated_sectors,
             uncorrectable_sectors, smart_overall, self_test_result,
             temperature_c, trip_temperature_c, power_on_time, grown_defects,
-            uncorrected_read_errors, non_medium_errors, invalid_dword_count,
-            running_disparity_errors, loss_of_sync_errors, long_self_test_duration,
+            uncorrected_read_errors, non_medium_errors, smart_report,
+            invalid_dword_count, running_disparity_errors, loss_of_sync_errors, long_self_test_duration,
             test_result, slot_id, tested_at, test_duration_seconds
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(serial_number) DO UPDATE SET
             model=excluded.model,
             pending_sectors=excluded.pending_sectors,
@@ -88,6 +100,7 @@ def save_or_update_hdd(data: dict) -> str:
             uncorrectable_sectors=excluded.uncorrectable_sectors,
             smart_overall=excluded.smart_overall,
             self_test_result=excluded.self_test_result,
+            smart_report=excluded.smart_report,
             temperature_c=excluded.temperature_c,
             trip_temperature_c=excluded.trip_temperature_c,
             power_on_time=excluded.power_on_time,
@@ -116,6 +129,7 @@ def save_or_update_hdd(data: dict) -> str:
         data.get("grown_defects"),
         data.get("uncorrected_read_errors"),
         data.get("non_medium_errors"),
+        data.get("smart_report"),
         data.get("invalid_dword_count"),
         data.get("running_disparity_errors"),
         data.get("loss_of_sync_errors"),
@@ -125,6 +139,18 @@ def save_or_update_hdd(data: dict) -> str:
         now_str,
         data.get("test_duration_seconds")
     ))
+    conn.commit()
+    conn.close()
+    return now_str
+
+def update_wipe_status(serial_number: str, status: str) -> str:
+    conn = get_connection()
+    cursor = conn.cursor()
+    now_str = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    cursor.execute(
+        "UPDATE hdds SET wipe_status=?, wipe_finished_at=? WHERE serial_number=?",
+        (status, now_str if status in ("WIPED", "WIPE_FAILED") else None, serial_number),
+    )
     conn.commit()
     conn.close()
     return now_str

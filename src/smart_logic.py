@@ -201,6 +201,16 @@ def parse_sas_extended_info(output: str) -> Dict[str, Any]:
 def get_extended_disk_info(device_path: str) -> Dict[str, Any]:
     return parse_sas_extended_info(run_cmd(["smartctl", "-x", device_path]))
 
+def get_smart_report(device_path: str) -> str:
+    output_a = run_cmd(["smartctl", "-a", device_path])
+    output_x = run_cmd(["smartctl", "-x", device_path])
+    return (
+        "=== smartctl -a ===\n"
+        + output_a.strip()
+        + "\n\n=== smartctl -x ===\n"
+        + output_x.strip()
+    )
+
 def parse_self_test_result(output: str) -> str:
     latest_test = re.search(r"^\s*#\s*1\s+.*$", output, re.IGNORECASE | re.MULTILINE)
     if latest_test:

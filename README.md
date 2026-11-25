@@ -59,9 +59,26 @@ with `sudo` during normal use. Reapply `setcap` after upgrading the
 
 ## Install and start
 
-Copy the complete `hdd-triage` directory to the new computer. Do not copy
-`venv/`, `.venv/`, `.git/`, or Python `__pycache__` directories; `run.sh`
-creates the virtual environment automatically.
+Copy the complete `hdd-triage` directory to the new computer. Copy `data/inventory.db` when historical test results must be preserved. Do not copy `venv/`, `.venv/`, `.git/`, or Python `__pycache__` directories; `run.sh` creates the virtual environment automatically.
+
+A portable copy can be created from the development PC:
+
+```bash
+cd ~/Desktop
+time rsync -av --info=progress2 \
+  --exclude='venv/' --exclude='.venv/' --exclude='.git/' \
+  --exclude='__pycache__/' hdd-triage/ /media/$USER/USB_NAME/hdd-triage/
+```
+
+On the target PC, copy the folder into the home directory and install the
+system packages and permissions described above:
+
+```bash
+cp -a /media/$USER/USB_NAME/hdd-triage ~/hdd-triage
+cd ~/hdd-triage
+chmod +x run.sh
+./run.sh
+```
 
 From the project directory:
 
@@ -193,6 +210,37 @@ Barcode values with a trailing period are supported. For example,
 The selection view shows only the compact decision indicators. Technical
 diagnostic messages and unavailable fields are kept out of the scan workflow.
 
+## SMART report and disk wiping
+
+After a test finishes, the complete `smartctl -a` and `smartctl -x` output is
+stored in the inventory for that serial number. The report can be opened from
+the slot with **SMART-Bericht**.
+
+The current report includes available fields such as SMART health,
+accumulated power-on time, current and trip temperature, grown defects,
+uncorrected read errors, non-medium errors, SAS link counters, and self-test log
+entries. Fields that the controller or disk cannot return are omitted rather
+than displayed as zero or `N/A`.
+
+The **Datenträger löschen** action is a destructive operation. It uses:
+
+```bash
+dd if=/dev/zero of=/dev/sdX bs=16M status=progress conv=fsync
+```
+
+The interface requires the disk serial number and a second confirmation before
+starting. It shows bytes written and percentage progress while `dd` runs.
+`dd` writes whole disks and must have write access to `/dev/sdX`; the normal
+`disk` group may grant that access, or the workstation may use a narrowly scoped
+sudo/udev rule for the wipe action. Do not hardcode a password or run Uvicorn
+as root merely to enable wiping.
+
+This
+operation permanently destroys all data and cannot be undone. Never wipe the
+computer's operating-system disk or a disk that is still needed.
+
+Wipe status and completion time are stored per disk in the inventory.
+
 ## Changing disks
 
 For each disk change:
@@ -223,7 +271,8 @@ http://127.0.0.1:8000/api/inventory
 ```
 
 The database stores the serial number, model, test result, self-test result,
-SMART health, available SAS diagnostics, test duration, slot, and timestamp.
+SMART health, complete `smartctl -a/-x` report text, available SAS diagnostics,
+test duration, slot, timestamp, wipe status, and wipe completion time.
 
 ## Troubleshooting
 

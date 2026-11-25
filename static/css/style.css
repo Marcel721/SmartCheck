@@ -254,9 +254,75 @@ body {
     background-color: #15803d;
 }
 
-/* --- Barcode Scan Result Popup --- */
+.report-btn {
+    background-color: #475569;
+    border-color: #64748b;
+}
+
+.report-btn:hover {
+    background-color: #64748b;
+}
+
+.wipe-btn {
+    background-color: #991b1b;
+    border-color: #dc2626;
+}
+
+.wipe-btn:hover {
+    background-color: #b91c1c;
+}
+
+.wipe-progress {
+    background: #ef4444;
+}
+
+.slot-card.wiping,
+.slot-card.wiped,
+.slot-card.wipe_failed {
+    border-width: 2px;
+}
+
+.slot-card.wiping {
+    border-color: #ef4444;
+}
+
+.slot-card.wiped {
+    border-color: #10b981;
+}
+
+.slot-card.wipe_failed {
+    border-color: #dc2626;
+}
+
+.wipe-confirm-popup {
+    width: min(560px, calc(100vw - 2rem));
+}
+
+.popup-actions {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 1.25rem;
+}
+
+.wipe-cancel {
+    background-color: #475569;
+}
+
+.wipe-confirm {
+    background-color: #b91c1c;
+    border-color: #ef4444;
+}
+
+.wipe-message {
+    color: #fecaca;
+    font-size: 0.8rem;
+}
+
 .popup {
     position: fixed;
+    top: auto;
+    left: auto;
     bottom: 2rem;
     right: 2rem;
     background-color: #1e293b;
@@ -288,12 +354,14 @@ body {
 
 .popup.scan-ready,
 .popup.scan-result {
-    bottom: 50%;
-    right: 50%;
+    top: 50%;
+    left: 50%;
+    right: auto;
+    bottom: auto;
     width: min(560px, calc(100vw - 2rem));
     padding: 2.5rem;
     text-align: center;
-    transform: translate(50%, 50%);
+    transform: translate(-50%, -50%);
 }
 
 .popup.scan-ready {
@@ -303,6 +371,76 @@ body {
 
 .popup.scan-result {
     color: #fff;
+}
+
+.popup.smart-report-popup {
+    display: flex;
+    flex-direction: column;
+    width: fit-content;
+    min-width: min(36rem, calc(100vw - 2rem));
+    max-width: calc(100vw - 2rem);
+    max-height: 90vh;
+    overflow: hidden;
+    text-align: left;
+    padding: 1.5rem;
+}
+
+.smart-report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.smart-report-header h2 {
+    min-width: 0;
+    margin: 0 0 1rem;
+    text-align: left;
+    overflow-wrap: anywhere;
+}
+
+.modal-close-btn {
+    flex: 0 0 auto;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    color: #e2e8f0;
+    background: #334155;
+    border: 1px solid #64748b;
+    border-radius: 6px;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.modal-close-btn:hover {
+    background: #475569;
+}
+
+.smart-report-text {
+    box-sizing: border-box;
+    width: max-content;
+    min-width: min(34rem, 100%);
+    max-width: min(72rem, calc(100vw - 6rem));
+    max-height: calc(90vh - 190px);
+    min-height: 0;
+    overflow: auto;
+    flex: 1 1 auto;
+    margin: 0 0 0.75rem;
+    text-align: left;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #0f172a;
+    border: 1px solid #334155;
+    padding: 1rem;
+    color: #e2e8f0;
+    font-size: 0.72rem;
+}
+
+.popup.smart-report-popup > .popup-close-btn {
+    align-self: flex-start;
+    flex: 0 0 auto;
+    margin-top: 0.5rem;
 }
 
 .scan-popup-icon {
@@ -343,6 +481,26 @@ body {
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
+}
+
+.selection-controls {
+    display: flex;
+    flex: 1 1 420px;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+.selection-controls .action-btn {
+    width: auto;
+}
+
+.sort-btn {
+    background: #475569;
+    border-color: #64748b;
+}
+
+.sort-btn:hover {
+    background: #64748b;
 }
 
 .selection-help {
@@ -387,6 +545,32 @@ body {
     width: 16px;
 }
 
+.inventory-serial {
+    flex: 1 1 150px;
+    min-width: 150px;
+    color: #e2e8f0;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+}
+
+.inventory-report-btn {
+    flex: 0 0 auto;
+    padding: 7px 11px;
+    color: #f8fafc;
+    background: #475569;
+    border: 1px solid #64748b;
+    border-radius: 6px;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.inventory-report-btn:hover {
+    background: #475569;
+}
+
 .inventory-status.passed {
     color: #6ee7b7;
 }
@@ -414,5 +598,24 @@ body {
     .inventory-row > span {
         flex: 1 1 calc(50% - 14px);
         min-width: calc(50% - 14px);
+    }
+
+    .popup.smart-report-popup {
+        min-width: 0;
+        padding: 1rem;
+    }
+
+    .smart-report-text {
+        min-width: 0;
+        max-width: calc(100vw - 4rem);
+        max-height: calc(90vh - 150px);
+    }
+
+    .selection-controls {
+        flex-direction: column;
+    }
+
+    .selection-controls .action-btn {
+        width: 100%;
     }
 }

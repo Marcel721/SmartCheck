@@ -1,6 +1,8 @@
 import asyncio
 import glob
 import os
+import re
+import subprocess
 import time
 import traceback
 from collections import defaultdict
@@ -13,7 +15,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from src.config import BASE_DIR, MAX_SLOTS
-from src.database import init_db, save_or_update_hdd, get_all_hdds, get_hdd_by_serial
+from src.database import (
+    init_db,
+    save_or_update_hdd,
+    get_all_hdds,
+    get_hdd_by_serial,
+    update_wipe_status,
+)
 from src import smart_logic
 from src.monitor import DiskMonitor
 
@@ -54,6 +62,7 @@ device_locks = defaultdict(asyncio.Lock)
 manually_ejected_devices: Dict[str, str] = {}
 ignored_startup_devices: Set[str] = set()
 startup_ignore_until = 0.0
+wipe_processes: Dict[int, Dict[str, Any]] = {}
 
 def empty_slot(slot_id: int) -> Dict[str, Any]:
     return {
@@ -66,6 +75,81 @@ def start_test_state(slot: Dict[str, Any]) -> None:
     slot["test_started_at"] = datetime.now(timezone.utc).isoformat()
     slot["test_duration_seconds"] = 0
     slot["test_generation"] = slot.get("test_generation", 0) + 1
+
+def start_wipe_process(slot_id: int, dev_node: str, serial: str) -> None:
+    if not re.fullmatch(r"/dev/sd[a-z]", dev_node):
+        wipe_processes[slot_id] = {"progress": 0, "status": "FAILED", "message": "Ungültiges Laufwerksziel."}
+        return
+
+    size_result = subprocess.run(
+        ["blockdev", "--getsize64", dev_node],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    total_bytes = int(size_result.stdout.strip()) if size_result.stdout.strip().isdigit() else 0
+    process = subprocess.Popen(
+        ["dd", "if=/dev/zero", f"of={dev_node}", "bs=16M", "status=progress", "conv=fsync"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    wipe_processes[slot_id] = {
+        "process": process,
+        "progress": 0,
+        "status": "WIPING",
+        "written_bytes": 0,
+        "total_bytes": total_bytes,
+        "serial": serial,
+        "message": "Vollständiges Löschen läuft.",
+    }
+
+    def watch_output():
+        if process.stderr:
+            chunk_buffer = ""
+            while True:
+                chunk = process.stderr.read(4096)
+                if not chunk:
+                    break
+                chunk_buffer += chunk
+                matches = re.findall(r"(\d+)\s+bytes", chunk_buffer)
+                if matches:
+                    written = int(matches[-1])
+                    wipe_processes[slot_id]["written_bytes"] = written
+                    if total_bytes:
+                        wipe_processes[slot_id]["progress"] = max(0, min(100, round(written * 100 / total_bytes)))
+
+        return_code = process.wait()
+        if return_code == 0:
+            wipe_processes[slot_id].update({
+                "progress": 100,
+                "status": "WIPED",
+                "message": "Datenträger vollständig mit Nullbytes überschrieben.",
+            })
+        else:
+            wipe_processes[slot_id].update({
+                "status": "WIPE_FAILED",
+                "message": f"Löschen fehlgeschlagen (Exit-Code {return_code}).",
+            })
+
+    import threading
+    threading.Thread(target=watch_output, daemon=True).start()
+
+async def monitor_wipe(slot_id: int, dev_node: str):
+    while True:
+        await asyncio.sleep(1)
+        state = wipe_processes.get(slot_id)
+        if not state:
+            return
+        slots_state[slot_id]["progress"] = state["progress"]
+        slots_state[slot_id]["status"] = state["status"]
+        slots_state[slot_id]["wipe_message"] = state["message"]
+        await manager.broadcast({"type": "SLOT_UPDATE", "slot": slots_state[slot_id]})
+        if state["status"] in ("WIPED", "WIPE_FAILED"):
+            await asyncio.to_thread(update_wipe_status, state["serial"], state["status"])
+            wipe_processes.pop(slot_id, None)
+            return
 
 def set_short_test_result(info: Dict[str, Any], started: bool) -> None:
     info.setdefault("test_results", {})["short_test"] = (
@@ -147,7 +231,11 @@ async def handle_disk_added(dev_node: str, preferred_slot_id: int = None):
                     "grown_defects",
                     "uncorrected_read_errors",
                     "quality_warnings",
+                    "wipe_status",
+                    "wipe_finished_at",
                 )
+                if db_entry.get("smart_report"):
+                    info["smart_report"] = db_entry["smart_report"]
                 for field in stored_fields:
                     if db_entry.get(field) is not None:
                         info[field] = db_entry[field]
@@ -333,6 +421,7 @@ async def poll_test_progress(dev_node: str, slot_id: int, generation: int):
                 ).get("short_test", "NOT_RUN")
                 final_info = await asyncio.to_thread(smart_logic.get_disk_info, dev_node)
                 final_info.update(await asyncio.to_thread(smart_logic.get_extended_disk_info, dev_node))
+                final_info["smart_report"] = await asyncio.to_thread(smart_logic.get_smart_report, dev_node)
                 test_results = final_info.setdefault("test_results", {})
                 test_results["short_test"] = (
                     await asyncio.to_thread(smart_logic.get_self_test_result, dev_node)
@@ -456,6 +545,13 @@ async def index(request: Request):
 async def api_inventory():
     return await asyncio.to_thread(get_all_hdds)
 
+@app.get("/api/report/{serial}")
+async def api_smart_report(serial: str):
+    record = await asyncio.to_thread(get_hdd_by_serial, serial)
+    if not record:
+        return {"smart_report": None}
+    return {"smart_report": record.get("smart_report")}
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     selection_mode_active = False
@@ -500,6 +596,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 selected_serials = set()
             elif data.get("type") == "EJECT_SLOT":
                 slot_id = int(data.get("slot_id"))
+                if slots_state.get(slot_id, {}).get("status") == "WIPING":
+                    await websocket.send_json({
+                        "type": "WIPE_RESULT",
+                        "slot_id": slot_id,
+                        "status": "blocked",
+                        "message": "Der laufende Löschvorgang kann nicht freigegeben werden.",
+                    })
+                    continue
                 if slot_id in slots_state:
                     dev_node = slots_state[slot_id].get("device")
                     serial = slots_state[slot_id].get("info", {}).get("serial_number")
@@ -509,7 +613,33 @@ async def websocket_endpoint(websocket: WebSocket):
                     await manager.broadcast({"type": "SLOT_UPDATE", "slot": slots_state[slot_id]})
             elif data.get("type") == "RETEST_SLOT":
                 slot_id = int(data.get("slot_id"))
+                if slots_state.get(slot_id, {}).get("status") == "WIPING":
+                    continue
                 asyncio.create_task(start_manual_retest(slot_id))
+            elif data.get("type") == "WIPE_SLOT":
+                slot_id = int(data.get("slot_id"))
+                slot = slots_state.get(slot_id)
+                if not slot or slot["status"] == "WIPING":
+                    continue
+                dev_node = slot.get("device")
+                serial = slot.get("info", {}).get("serial_number")
+                if not dev_node or not serial:
+                    continue
+                if data.get("confirmed") is not True and data.get("confirmed_serial") != serial:
+                    await websocket.send_json({
+                        "type": "WIPE_RESULT",
+                        "slot_id": slot_id,
+                        "status": "cancelled",
+                        "message": "Seriennummer stimmt nicht überein. Löschen wurde abgebrochen.",
+                    })
+                    continue
+                slot["status"] = "WIPING"
+                slot["progress"] = 0
+                slot["wipe_message"] = "Vollständiges Löschen läuft."
+                await asyncio.to_thread(update_wipe_status, serial, "WIPING")
+                await manager.broadcast({"type": "SLOT_UPDATE", "slot": slot})
+                await asyncio.to_thread(start_wipe_process, slot_id, dev_node, serial)
+                asyncio.create_task(monitor_wipe(slot_id, dev_node))
             elif data.get("type") == "CHECK_SLOT":
                 slot_id = int(data.get("slot_id"))
                 asyncio.create_task(check_disk_for_slot(slot_id))
